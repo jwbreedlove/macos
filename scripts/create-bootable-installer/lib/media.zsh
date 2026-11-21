@@ -54,7 +54,6 @@ mci::media::verify() {
     if [[ -d $vol ]]; then
       mci::log::info "Install volume present: $vol"
       mci::log::info "Media creation succeeded for ${MCI_INSTALLER_TITLE:-macOS} ${MCI_INSTALLER_VERSION:-?} (build ${MCI_INSTALLER_BUILD:-?})."
-      mci::log::info "Next: boot from this USB on a Mac (see README). This tool does NOT install onto the internal disk."
       return 0
     fi
   done
