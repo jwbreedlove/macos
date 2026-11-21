@@ -1,0 +1,152 @@
+#!/usr/bin/env zsh
+# create-bootable-installer — download latest macOS installer and write bootable external media
+# Apple Silicon (arm64) macOS only. Never erases or installs onto the internal system disk.
+emulate -L zsh
+setopt err_return no_unset warn_create_global
+setopt extended_glob null_glob
+
+typeset -g MCI_ROOT
+MCI_ROOT="$(cd -- "${0:A:h}/.." && pwd)"
+
+source "$MCI_ROOT/lib/log.zsh"
+source "$MCI_ROOT/lib/host.zsh"
+source "$MCI_ROOT/lib/download.zsh"
+source "$MCI_ROOT/lib/disk.zsh"
+source "$MCI_ROOT/lib/media.zsh"
+
+typeset -g MCI_DRY_RUN=0
+typeset -g MCI_LIST_INSTALLERS=0
+typeset -g MCI_LIST_DISKS=0
+typeset -g MCI_OPT_DISK=""
+typeset -g MCI_OPT_VOLUME_NAME=""
+
+mci::usage() {
+  cat <<'EOF'
+Usage: create-bootable-installer [options]
+
+Download the latest full macOS installer (Apple softwareupdate) and write a
+bootable install volume to a selected external disk (createinstallmedia).
+Requires Apple Silicon (arm64) macOS — Intel/x86_64 hosts are refused.
+
+Options:
+  --dry-run              Resolve latest installer and proposed disk actions;
+                         do not download, erase, or write.
+  --disk diskN           Pre-select external disk (still requires confirmations).
+  --volume-name NAME     Volume name for eraseDisk (default: Install macOS).
+  --list-installers      Show Apple full-installer catalog and selected latest.
+  --list-disks           Show external physical disks.
+  -h, --help             Show this help.
+
+Safety:
+  - External disks only; internal system disk is refused.
+  - Non-empty disks require typing YES, then the disk id (e.g. disk4).
+  - No --yes / skip-confirm flag.
+  - Does not run the installer or wipe the Mac internal disk.
+
+Exit codes:
+  0  success
+  1  aborted / general failure
+  2  usage error
+  3  not macOS / not Apple Silicon / missing host tools
+  4  catalog or download failure
+  5  disk selection / safety failure
+  6  erase or createinstallmedia failure
+EOF
+}
+
+mci::parse_args() {
+  while (( $# )); do
+    case "$1" in
+      --dry-run)
+        MCI_DRY_RUN=1
+        shift
+        ;;
+      --list-installers)
+        MCI_LIST_INSTALLERS=1
+        shift
+        ;;
+      --list-disks)
+        MCI_LIST_DISKS=1
+        shift
+        ;;
+      --disk)
+        if (( $# < 2 )); then
+          mci::log::die "$MCI_E_USAGE" "--disk requires an argument (diskN)."
+        fi
+        MCI_OPT_DISK="$2"
+        shift 2
+        ;;
+      --volume-name)
+        if (( $# < 2 )); then
+          mci::log::die "$MCI_E_USAGE" "--volume-name requires an argument."
+        fi
+        MCI_OPT_VOLUME_NAME="$2"
+        shift 2
+        ;;
+      -h|--help)
+        mci::usage
+        exit "$MCI_E_OK"
+        ;;
+      --)
+        shift
+        break
+        ;;
+      -*)
+        mci::log::die "$MCI_E_USAGE" "Unknown option: $1 (try --help)"
+        ;;
+      *)
+        mci::log::die "$MCI_E_USAGE" "Unexpected argument: $1 (try --help)"
+        ;;
+    esac
+  done
+  if (( $# )); then
+    mci::log::die "$MCI_E_USAGE" "Unexpected arguments: $*"
+  fi
+  if [[ -n $MCI_OPT_VOLUME_NAME ]]; then
+    MCI_VOLUME_NAME="$MCI_OPT_VOLUME_NAME"
+  fi
+}
+
+mci::main() {
+  mci::parse_args "$@"
+
+  mci::host::require_macos
+  mci::host::require_apple_silicon
+  mci::host::check_tools
+  mci::host::summary
+
+  if (( MCI_LIST_INSTALLERS )); then
+    mci::download::print_catalog
+    exit "$MCI_E_OK"
+  fi
+
+  if (( MCI_LIST_DISKS )); then
+    mci::disk::print_external
+    exit "$MCI_E_OK"
+  fi
+
+  # Resolve latest installer (catalog only; fetch later unless dry-run).
+  mci::download::resolve_latest
+
+  # Select external disk (interactive unless --disk).
+  mci::disk::select "$MCI_OPT_DISK"
+
+  if (( MCI_DRY_RUN )); then
+    mci::media::dry_run_summary
+    mci::log::info "Dry-run complete; no changes made."
+    exit "$MCI_E_OK"
+  fi
+
+  mci::log::info "Proceeding with download + media creation."
+  mci::download::fetch
+
+  mci::disk::confirm_wipe
+  mci::media::erase_disk
+  mci::media::create
+  mci::media::verify
+
+  mci::log::info "Done."
+  exit "$MCI_E_OK"
+}
+
+mci::main "$@"
