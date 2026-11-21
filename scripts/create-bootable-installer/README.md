@@ -18,6 +18,15 @@ No Mist, App Store downloads, or reuse of an existing Installer.app — catalog 
 
 ## Install / run
 
+Preferred (no clone) — see the [root Install section](../../README.md#install):
+
+```zsh
+curl -fsSL https://raw.githubusercontent.com/jwbreedlove/macos/main/install | zsh
+create-bootable-installer --help
+```
+
+From a clone:
+
 ```zsh
 git clone https://github.com/jwbreedlove/macos.git
 cd macos

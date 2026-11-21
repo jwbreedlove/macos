@@ -1,0 +1,284 @@
+#!/usr/bin/env zsh
+# install — fetch macos tools from GitHub into a local prefix (no git/clone required)
+emulate -L zsh
+setopt err_return warn_create_global
+setopt extended_glob null_glob
+
+typeset -g MI_REPO_OWNER="jwbreedlove"
+typeset -g MI_REPO_NAME="macos"
+typeset -g MI_REF="${MACOS_REF:-main}"
+typeset -g MI_PREFIX="${MACOS_PREFIX:-${HOME}/.local/share/macos}"
+typeset -g MI_BIN_DIR="${MACOS_BIN_DIR:-${HOME}/.local/bin}"
+typeset -g MI_ACTION="install"
+typeset -ga MI_TOOLS=()
+
+# Tools shipped under scripts/<name>/ (bin + optional lib).
+typeset -ga MI_KNOWN_TOOLS=(
+  create-bootable-installer
+)
+
+mi::die() {
+  print -u2 -- "error: $*"
+  exit 1
+}
+
+mi::usage() {
+  cat <<EOF
+Usage: install [options] [tool ...]
+       install --list
+       install --uninstall [tool ...]
+
+Download tools from GitHub (raw archive; no git clone) into a local prefix
+and symlink entrypoints onto your PATH.
+
+Default tool (when none named): all known tools.
+Default prefix: ~/.local/share/macos/<tool>/
+Default bin:    ~/.local/bin
+
+Options:
+  --list                 List installable tools and exit
+  --prefix DIR           Install tree root (default: ~/.local/share/macos)
+  --bin-dir DIR          Directory for symlinks (default: ~/.local/bin)
+  --ref REF              Git branch or tag (default: main, or \$MACOS_REF)
+  --uninstall            Remove installed tool(s) and their bin symlinks
+  -h, --help             Show this help
+
+Environment:
+  MACOS_REF       Same as --ref
+  MACOS_PREFIX    Same as --prefix
+  MACOS_BIN_DIR   Same as --bin-dir
+
+Examples:
+  curl -fsSL https://raw.githubusercontent.com/${MI_REPO_OWNER}/${MI_REPO_NAME}/main/install | zsh
+  curl -fsSL .../install | zsh -s -- create-bootable-installer
+  curl -fsSL .../install | zsh -s -- --list
+  ./install --ref cursor/add-create-bootable-installer-2a4e
+EOF
+}
+
+mi::is_known_tool() {
+  local t="$1" k
+  for k in "${MI_KNOWN_TOOLS[@]}"; do
+    [[ "$k" == "$t" ]] && return 0
+  done
+  return 1
+}
+
+mi::parse_args() {
+  while (( $# )); do
+    case "$1" in
+      -h|--help)
+        mi::usage
+        exit 0
+        ;;
+      --list)
+        MI_ACTION="list"
+        shift
+        ;;
+      --uninstall)
+        MI_ACTION="uninstall"
+        shift
+        ;;
+      --prefix)
+        (( $# >= 2 )) || mi::die "--prefix requires a directory"
+        MI_PREFIX="$2"
+        shift 2
+        ;;
+      --bin-dir)
+        (( $# >= 2 )) || mi::die "--bin-dir requires a directory"
+        MI_BIN_DIR="$2"
+        shift 2
+        ;;
+      --ref)
+        (( $# >= 2 )) || mi::die "--ref requires a branch or tag"
+        MI_REF="$2"
+        shift 2
+        ;;
+      --)
+        shift
+        MI_TOOLS+=("$@")
+        break
+        ;;
+      -*)
+        mi::die "unknown option: $1 (try --help)"
+        ;;
+      *)
+        MI_TOOLS+=("$1")
+        shift
+        ;;
+    esac
+  done
+}
+
+mi::resolve_tools() {
+  if (( ${#MI_TOOLS} == 0 )); then
+    MI_TOOLS=("${MI_KNOWN_TOOLS[@]}")
+    return
+  fi
+  local t
+  for t in "${MI_TOOLS[@]}"; do
+    mi::is_known_tool "$t" || mi::die "unknown tool: $t (use --list)"
+  done
+}
+
+mi::list() {
+  print "Installable tools (ref: ${MI_REF}):"
+  local t
+  for t in "${MI_KNOWN_TOOLS[@]}"; do
+    print "  $t"
+  done
+  print ""
+  print "Prefix: ${MI_PREFIX}/<tool>/"
+  print "Bin:    ${MI_BIN_DIR}/"
+}
+
+mi::archive_url() {
+  # Branch or tag ref → GitHub source archive (codeload accepts both).
+  print "https://codeload.github.com/${MI_REPO_OWNER}/${MI_REPO_NAME}/tar.gz/${MI_REF}"
+}
+
+mi::need_cmd() {
+  command -v "$1" >/dev/null 2>&1 || mi::die "required command not found: $1"
+}
+
+mi::path_has_bin() {
+  local p
+  for p in "${path[@]}"; do
+    [[ "$p" == "$MI_BIN_DIR" ]] && return 0
+  done
+  return 1
+}
+
+mi::print_path_hint() {
+  if mi::path_has_bin; then
+    return 0
+  fi
+  cat <<EOF
+
+Note: ${MI_BIN_DIR} is not on your PATH.
+Add this to ~/.zshrc (then open a new shell or run: source ~/.zshrc):
+
+  export PATH="${MI_BIN_DIR}:\$PATH"
+EOF
+}
+
+mi::install_tool_from_tree() {
+  local tool="$1" src_root="$2"
+  local src="${src_root}/scripts/${tool}"
+  local dest="${MI_PREFIX}/${tool}"
+  local entry bin_name
+
+  [[ -d "$src" ]] || mi::die "archive is missing scripts/${tool} (ref=${MI_REF})"
+  [[ -d "${src}/bin" ]] || mi::die "scripts/${tool}/bin missing in archive"
+
+  mkdir -p "$MI_PREFIX" "$MI_BIN_DIR"
+  rm -rf "$dest"
+  mkdir -p "$dest"
+  # Preserve bin/ + lib/ layout so tools keep relative lib paths (${0:A:h}/..).
+  cp -R "${src}/bin" "$dest/"
+  if [[ -d "${src}/lib" ]]; then
+    cp -R "${src}/lib" "$dest/"
+  fi
+  if [[ -f "${src}/README.md" ]]; then
+    cp "${src}/README.md" "$dest/"
+  fi
+
+  # Symlink every executable under bin/ into the bin dir.
+  for entry in "${dest}/bin"/*(.N); do
+    [[ -e "$entry" ]] || continue
+    bin_name="${entry:t}"
+    chmod +x "$entry"
+    ln -sfn "$entry" "${MI_BIN_DIR}/${bin_name}"
+    print "installed ${tool} → ${dest}"
+    print "  symlink ${MI_BIN_DIR}/${bin_name} → ${entry}"
+  done
+}
+
+mi::install() {
+  mi::need_cmd curl
+  mi::need_cmd tar
+  mi::need_cmd mktemp
+
+  local url tmp top tool
+  url="$(mi::archive_url)"
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/macos-install.XXXXXX")"
+  # shellcheck disable=SC2064
+  trap "rm -rf ${(q)tmp}" EXIT
+
+  print "Downloading ${MI_REPO_OWNER}/${MI_REPO_NAME}@${MI_REF} …"
+  if ! curl -fsSL "$url" | tar -xz -C "$tmp"; then
+    mi::die "download/extract failed for ${url}
+Tip: if this ref is not on main yet, pass --ref <branch> or set MACOS_REF."
+  fi
+
+  # Archive top dir is macos-<ref-with-slashes-as-dashes>/
+  top=("$tmp"/macos-*(/N[1]))
+  (( ${#top} == 1 )) || mi::die "unexpected archive layout under ${tmp}"
+  [[ -d "${top[1]}/scripts" ]] || mi::die "archive missing scripts/ (ref=${MI_REF})"
+
+  for tool in "${MI_TOOLS[@]}"; do
+    mi::install_tool_from_tree "$tool" "${top[1]}"
+  done
+
+  print ""
+  print "Done."
+  mi::print_path_hint
+}
+
+mi::uninstall_tool() {
+  local tool="$1"
+  local dest="${MI_PREFIX}/${tool}"
+  local entry bin_name link target
+
+  if [[ -d "${dest}/bin" ]]; then
+    for entry in "${dest}/bin"/*(.N); do
+      [[ -e "$entry" ]] || continue
+      bin_name="${entry:t}"
+      link="${MI_BIN_DIR}/${bin_name}"
+      if [[ -L "$link" ]]; then
+        target="$(readlink "$link" 2>/dev/null || true)"
+        if [[ "$target" == "$entry" || "$target" == "${dest}/bin/${bin_name}" ]]; then
+          rm -f "$link"
+          print "removed symlink ${link}"
+        fi
+      fi
+    done
+  fi
+
+  if [[ -d "$dest" ]]; then
+    rm -rf "$dest"
+    print "removed ${dest}"
+  else
+    print "not installed: ${tool} (${dest})"
+  fi
+}
+
+mi::uninstall() {
+  local tool
+  for tool in "${MI_TOOLS[@]}"; do
+    mi::uninstall_tool "$tool"
+  done
+  print "Done."
+}
+
+mi::main() {
+  mi::parse_args "$@"
+  case "$MI_ACTION" in
+    list)
+      mi::list
+      ;;
+    install)
+      mi::resolve_tools
+      mi::install
+      ;;
+    uninstall)
+      mi::resolve_tools
+      mi::uninstall
+      ;;
+    *)
+      mi::die "internal: unknown action ${MI_ACTION}"
+      ;;
+  esac
+}
+
+mi::main "$@"

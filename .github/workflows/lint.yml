@@ -15,15 +15,20 @@ jobs:
       - name: zsh syntax check
         run: |
           set -e
-          find scripts -type f \( -name '*.zsh' -o -path '*/bin/*' \) -print0 \
-            | while IFS= read -r -d '' f; do
+          {
+            find scripts -type f \( -name '*.zsh' -o -path '*/bin/*' \) -print0
+            [[ -f install ]] && printf '%s\0' install
+          } | while IFS= read -r -d '' f; do
                 echo "zsh -n $f"
                 zsh -n "$f"
               done
       - name: shellcheck (best-effort on zsh)
         run: |
           # Limited zsh support: ignore source-follow and common zsh/bash mismatches.
-          mapfile -d '' files < <(find scripts -type f \( -name '*.zsh' -o -path '*/bin/*' \) -print0)
+          mapfile -d '' files < <(
+            find scripts -type f \( -name '*.zsh' -o -path '*/bin/*' \) -print0
+            [[ -f install ]] && printf '%s\0' install
+          )
           shellcheck -s bash \
             -e SC1091,SC1094,SC2034,SC2154,SC2155,SC2206,SC2207,SC2296,SC2298,SC2299,SC3030,SC3043,SC3010,SC3028,SC3057,SC3005,SC1009,SC1072,SC1073 \
             "${files[@]}"
