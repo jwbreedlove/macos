@@ -10,6 +10,7 @@ typeset -ga MCI_EXTERNAL_DISKS=()
 mci::disk::list_external_ids() {
   MCI_EXTERNAL_DISKS=()
   local line id
+  local -a match mbegin mend
   # Prefer diskutil's external physical filter; fall back to parsing list.
   local out
   out="$(diskutil list external physical 2>/dev/null)" || out="$(diskutil list external 2>/dev/null)" || out=""
@@ -97,6 +98,7 @@ mci::disk::require_external_present() {
 mci::disk::select() {
   local pref="${1:-}"
   local choice=""
+  local -a match mbegin mend
 
   mci::disk::require_external_present
 

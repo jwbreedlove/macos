@@ -48,6 +48,7 @@ mci::download::parse_line() {
 mci::download::version_gt() {
   local a="$1" b="$2"
   local -a aa ba
+  local -a match mbegin mend
   local i n av bv
 
   aa=(${(s:.:)a})
