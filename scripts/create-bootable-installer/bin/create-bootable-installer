@@ -39,9 +39,10 @@ Options:
 
 Safety:
   - External disks only; internal system disk is refused.
-  - Non-empty disks require typing YES, then the disk id (e.g. disk4).
+  - Wipe confirmations are y/N prompts (default no); Enter declines.
   - No --yes / skip-confirm flag.
   - Does not run the installer or wipe the Mac internal disk.
+  - After success, optionally delete this run's Installer.app (y/N, default no).
 
 Exit codes:
   0  success
@@ -144,6 +145,7 @@ mci::main() {
   mci::media::erase_disk
   mci::media::create
   mci::media::verify
+  mci::download::maybe_remove_app
 
   mci::log::info "Done."
   exit "$MCI_E_OK"

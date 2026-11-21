@@ -142,10 +142,9 @@ mci::disk::select() {
   MCI_DISK_NAME="$(diskutil info "$choice" 2>/dev/null | awk -F: '/Media Name/ {gsub(/^ +| +$/,"",$2); print $2; exit}')"
 }
 
-# Confirm non-empty + require typing the disk id. No --yes escape hatch.
+# Confirm wipe with y/N (default no). No --yes escape hatch.
 mci::disk::confirm_wipe() {
   local id="$MCI_DISK_ID"
-  local reply
 
   [[ -n $id ]] || mci::log::die "$MCI_E_DISK" "No disk selected."
 
@@ -155,22 +154,15 @@ mci::disk::confirm_wipe() {
 
   if mci::disk::has_volumes_or_data "$id"; then
     mci::log::warn "Disk $id appears NON-EMPTY (has partitions/volumes)."
-    print -n -- "Type YES to confirm you intend to wipe this non-empty disk: "
-    read -r reply
-    if [[ $reply != YES ]]; then
-      mci::log::die "$MCI_E_ABORT" "Confirmation not YES; aborting (disk untouched)."
+    if ! mci::log::confirm_yn "Wipe this non-empty disk /dev/$id?"; then
+      mci::log::die "$MCI_E_ABORT" "Confirmation declined; aborting (disk untouched)."
     fi
   else
     mci::log::info "Disk $id appears empty (no partition slices detected)."
   fi
 
-  print -n -- "Type the disk identifier exactly ($id) to proceed with erase: "
-  read -r reply
-  reply="${reply##[[:space:]]#}"
-  reply="${reply%%[[:space:]]#}"
-  reply="${reply#/dev/}"
-  if [[ $reply != "$id" ]]; then
-    mci::log::die "$MCI_E_ABORT" "Typed identifier '$reply' does not match $id; aborting (disk untouched)."
+  if ! mci::log::confirm_yn "Erase entire external disk /dev/$id?"; then
+    mci::log::die "$MCI_E_ABORT" "Confirmation declined; aborting (disk untouched)."
   fi
 
   mci::log::info "Wipe confirmation accepted for $id."
