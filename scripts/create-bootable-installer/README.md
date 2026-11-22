@@ -59,7 +59,7 @@ $TOOL --list-installers
 $TOOL --list-disks
 $TOOL --dry-run
 
-# Create bootable media (interactive disk pick + typed confirmations)
+# Create bootable media (interactive disk pick + y/N confirmations)
 $TOOL
 ```
 
@@ -67,7 +67,7 @@ $TOOL
 
 - **External disks only.** Internal / boot disks are refused.
 - **Wiping is destructive.** Everything on the selected external disk is erased.
-- If the disk is **not empty**, you must type `YES`, then type the disk id (e.g. `disk4`) exactly.
+- Confirmations use **`y/N`** prompts (default **no**): non-empty wipe, final erase, and optional post-success Installer.app delete. Empty Enter declines.
 - There is **no** `--yes` or skip-confirm flag.
 - This tool **never** automates installing onto, or wiping, the Mac internal system disk.
 - Use only for personal / authorized machines. Do not redistribute the downloaded installer.

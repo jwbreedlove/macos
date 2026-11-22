@@ -48,6 +48,7 @@ mci::download::parse_line() {
 mci::download::version_gt() {
   local a="$1" b="$2"
   local -a aa ba
+  local -a match mbegin mend
   local i n av bv
 
   aa=(${(s:.:)a})
@@ -166,5 +167,47 @@ mci::download::validate() {
     mci::log::info "Validated installer: $app (CFBundleShortVersionString=${shortver:-?}, CFBundleVersion=${bundlever:-?})"
   else
     mci::log::info "Validated installer: $app (createinstallmedia present)"
+  fi
+}
+
+# Optional cleanup of this run's Installer.app under /Applications (y/N, default no).
+mci::download::maybe_remove_app() {
+  local app="$MCI_INSTALLER_APP"
+  local expected=""
+  local abs=""
+
+  if [[ -z $app || -z $MCI_INSTALLER_TITLE ]]; then
+    return 0
+  fi
+
+  expected="/Applications/Install ${MCI_INSTALLER_TITLE}.app"
+  if [[ $app != "$expected" ]]; then
+    mci::log::warn "Skipping installer cleanup: refusing path '$app' (expected '$expected')."
+    return 0
+  fi
+  # Refuse anything outside /Applications/Install *.app for this run.
+  if [[ $app != /Applications/Install\ *.app ]]; then
+    mci::log::warn "Skipping installer cleanup: refusing unexpected path '$app'."
+    return 0
+  fi
+  abs="${app:A}"
+  if [[ $abs != "$app" || $abs != /Applications/Install\ *.app ]]; then
+    mci::log::warn "Skipping installer cleanup: refusing resolved path '$abs'."
+    return 0
+  fi
+  if [[ ! -d $app ]]; then
+    mci::log::info "Installer app already absent: $app"
+    return 0
+  fi
+
+  if ! mci::log::confirm_yn "Delete downloaded installer $app?"; then
+    mci::log::info "Keeping installer at $app"
+    return 0
+  fi
+
+  if rm -rf -- "$app"; then
+    mci::log::info "Deleted $app"
+  else
+    mci::log::warn "Failed to delete $app"
   fi
 }

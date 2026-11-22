@@ -44,3 +44,14 @@ mci::log::die() {
   mci::log::error "$@"
   exit "$code"
 }
+
+# Prompt "$1 [y/N]: "; return 0 only for y/Y. Empty Enter and anything else = no.
+mci::log::confirm_yn() {
+  local prompt="$1"
+  local reply
+  print -n -- "$prompt [y/N]: "
+  read -r reply
+  reply="${reply##[[:space:]]#}"
+  reply="${reply%%[[:space:]]#}"
+  [[ $reply == y || $reply == Y ]]
+}
